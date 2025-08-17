@@ -3,7 +3,7 @@ import pandas as pd
 import json, argparse, io, requests
 from typing import List, Dict
 from backend.config import settings
-from backend.providers.search_client import make_search_client
+from search_client import make_search_client
 from backend.providers.gemini_provider import get_gemini_client
 
 def embed(texts: List[str]) -> List[List[float]]:
