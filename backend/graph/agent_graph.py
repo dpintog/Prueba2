@@ -3,13 +3,12 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from backend.tools.search_tool import search_cases
-from backend.tools.list_recent_tool import list_recent_cases
+from backend.tools.search_cases import search_cases
 from backend.prompts import SYSTEM_PROMPT, FINAL_JSON_INSTRUCTIONS
 from backend.config import settings
 from .state import GraphState
 
-tools = [search_cases, list_recent_cases]
+tools = [search_cases]
 tool_node = ToolNode(tools)
 
 def _model():

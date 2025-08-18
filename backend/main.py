@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import HumanMessage, SystemMessage
-from backend.config import settings
-from backend.graph.agent_graph import build_graph
-from backend.prompts import SYSTEM_PROMPT
+from config import settings
+from graph.agent_graph import build_graph
+from prompts import SYSTEM_PROMPT
 from pydantic import BaseModel, Field
 
 app = FastAPI(title=settings.APP_NAME)

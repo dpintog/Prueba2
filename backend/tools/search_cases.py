@@ -18,7 +18,7 @@ def search_cases(query: str,
     Params:
       query: texto de la consulta
       top_k: número de resultados
-      filters: dict OData simple, e.g., {"jurisdiction":"CO","year":2024}
+      filters: dict OData simple, e.g., {"providencia":"CO","year":2024}
     """
     client = make_search_client()
     vec = _embed_query(query)
