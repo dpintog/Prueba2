@@ -22,8 +22,16 @@ gunicorn -w 2 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 backend.main:app
 ```
 
 
-## Ejecución indexador
+## Creación de índice
 
 ```powershell
-python -m indexacion.create_index
+cd indexacion
+python create_index.py
+```
+
+## Ingesta de datos al índice
+
+```powershell
+cd indexacion
+python ingest_excel.py
 ```

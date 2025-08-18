@@ -35,7 +35,7 @@ def list_blobs_in_container() -> List[str]:
         print(f"Error listing blobs: {e}")
         return []
 
-def load_excel_from_azure_storage(blob_name: str = "demandas.xlsx") -> pd.DataFrame:
+def load_excel_from_azure_storage(blob_name: str = "sentencias_pasadas.xlsx") -> pd.DataFrame:
     """Load Excel file from Azure Storage"""
     try:
         blob_service_client = BlobServiceClient(
@@ -188,7 +188,7 @@ if __name__ == "__main__":
         exit(1)
         
     # Use the first Excel file found, or specify the correct name
-    excel_file = excel_files[0] if excel_files else "demandas.xlsx"
+    excel_file = excel_files[0] if excel_files else "sentencias_pasadas.xlsx"
     print(f"Using Excel file: {excel_file}")
     
     print("Loading Excel from Azure Storage...")
