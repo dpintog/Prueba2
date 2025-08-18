@@ -1,8 +1,8 @@
 from typing import Optional, List, Dict, Any
 from langchain.tools import tool
-from backend.providers.bot_search_client import make_search_client
-from backend.providers.gemini_provider import get_gemini_client
-from backend.config import settings
+from providers.bot_search_client import make_search_client
+from providers.gemini_provider import get_gemini_client
+from config import settings
 
 def _embed_query(text: str) -> List[float]:
     genai = get_gemini_client()

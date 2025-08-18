@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 from langchain.tools import tool
-from backend.providers.bot_search_client import make_search_client
+from providers.bot_search_client import make_search_client
 
 
 @tool("search_by_providence", return_direct=False)
