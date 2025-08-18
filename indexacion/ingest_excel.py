@@ -1,18 +1,59 @@
 # Para indexar nuestro excel en un índice de Azure AI Search
 import pandas as pd
-import json, argparse, io, requests
+import json, io, requests
 from typing import List, Dict
-from backend.config import settings
+from embedder import settings
 from search_client import make_search_client
-from backend.providers.gemini_provider import get_gemini_client
+from azure.storage.blob import BlobServiceClient
+import google.genai as genai
 
 def embed(texts: List[str]) -> List[List[float]]:
-    genai = get_gemini_client()
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
     vecs = []
     for t in texts:
-        e = genai.embed_content(model=settings.GEMINI_EMBED_MODEL, content=str(t))
-        vecs.append(e["embedding"]["values"])
+        # Using the documented API for google-genai SDK
+        response = client.models.embed_content(
+            model=settings.GEMINI_EMBED_MODEL,
+            input=str(t)
+        )
+        vecs.append(response.embedding.values)
     return vecs
+
+def list_blobs_in_container() -> List[str]:
+    """List all blobs in the Azure Storage container"""
+    try:
+        blob_service_client = BlobServiceClient(
+            account_url=f"https://{settings.AZURE_BLOB_ACCOUNT_NAME}.blob.core.windows.net",
+            credential=settings.AZURE_BLOB_ACCOUNT_KEY
+        )
+        
+        container_client = blob_service_client.get_container_client(settings.AZURE_BLOB_CONTAINER_NAME)
+        blob_list = container_client.list_blobs()
+        return [blob.name for blob in blob_list]
+        
+    except Exception as e:
+        print(f"Error listing blobs: {e}")
+        return []
+
+def load_excel_from_azure_storage(blob_name: str = "demandas.xlsx") -> pd.DataFrame:
+    """Load Excel file from Azure Storage"""
+    try:
+        blob_service_client = BlobServiceClient(
+            account_url=f"https://{settings.AZURE_BLOB_ACCOUNT_NAME}.blob.core.windows.net",
+            credential=settings.AZURE_BLOB_ACCOUNT_KEY
+        )
+        
+        blob_client = blob_service_client.get_blob_client(
+            container=settings.AZURE_BLOB_CONTAINER_NAME,
+            blob=blob_name
+        )
+        
+        blob_data = blob_client.download_blob().readall()
+        return pd.read_excel(io.BytesIO(blob_data))
+        
+    except Exception as e:
+        print(f"Error loading Excel from Azure Storage: {e}")
+        raise
 
 def load_excel(path_or_sas: str) -> pd.DataFrame:
     if path_or_sas.lower().startswith("http"):
@@ -29,9 +70,77 @@ def chunk(text: str, max_words=180, overlap=40) -> List[str]:
         i = j - overlap if j - overlap > i else j
     return chunks
 
+def prepare_docs_legal(df: pd.DataFrame) -> List[Dict]:
+    """Prepare documents from legal Excel with specific column structure"""
+    docs = []
+    for i, row in df.iterrows():
+        # Extract and clean data from specific columns
+        relevancia = float(row['Relevancia']) if pd.notna(row['Relevancia']) else 0.0
+        providencia = str(row['Providencia']) if pd.notna(row['Providencia']) else None
+        tipo = str(row['Tipo']) if pd.notna(row['Tipo']) else None
+        fecha_sentencia = row['Fecha Sentencia'] if pd.notna(row['Fecha Sentencia']) else None
+        tema_subtema = str(row['Tema - subtema']) if pd.notna(row['Tema - subtema']) else ""
+        resuelve = str(row['resuelve']) if pd.notna(row['resuelve']) else ""
+        sintesis = str(row['sintesis']) if pd.notna(row['sintesis']) else ""
+        
+        # Extract year from date if available
+        year = None
+        if fecha_sentencia:
+            try:
+                if isinstance(fecha_sentencia, str):
+                    # Try to parse different date formats
+                    from datetime import datetime
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y']:
+                        try:
+                            date_obj = datetime.strptime(str(fecha_sentencia), fmt)
+                            year = date_obj.year
+                            break
+                        except ValueError:
+                            continue
+                else:
+                    year = fecha_sentencia.year
+            except:
+                pass
+        
+        # Parse temas from "Tema - subtema" column
+        temas = []
+        if tema_subtema:
+            # Split by common separators and clean
+            parts = tema_subtema.replace(' - ', '|').replace(', ', '|').replace(',', '|').split('|')
+            temas = [t.strip() for t in parts if t.strip()]
+        
+        # Combine resuelve and sintesis for content
+        content_parts = []
+        if resuelve and resuelve.lower() != 'nan':
+            content_parts.append(f"Resuelve: {resuelve}")
+        if sintesis and sintesis.lower() != 'nan':
+            content_parts.append(f"Síntesis: {sintesis}")
+        
+        full_content = " ".join(content_parts)
+        
+        if not full_content.strip():
+            continue  # Skip rows without meaningful content
+            
+        # Create chunks from the combined content
+        chunks = chunk(full_content)
+        for j, c in enumerate(chunks):
+            docs.append({
+                "id": f"{i}-{j}",
+                "title": providencia,
+                "content": c,
+                "source": tipo,
+                "date": fecha_sentencia.isoformat() if hasattr(fecha_sentencia, 'isoformat') else str(fecha_sentencia) if fecha_sentencia else None,
+                "year": year,
+                "relevance": relevancia,
+                "tema_subtema_raw": tema_subtema,
+                "temas": temas
+            })
+    return docs
+
 def prepare_docs(df: pd.DataFrame, text_col: str, title_col: str | None,
                  source_col: str | None, date_col: str | None,
                  jurisdiction_col: str | None, year_col: str | None) -> List[Dict]:
+    """Legacy function for backward compatibility"""
     docs = []
     for i, row in df.iterrows():
         title = (str(row[title_col]) if title_col and pd.notna(row[title_col]) else None)
@@ -65,17 +174,47 @@ def upload_docs(docs: List[Dict]):
         print(f"Uploaded {i + len(page)}/{len(docs)}")
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--path", required=True, help="Excel path or Blob SAS URL")
-    p.add_argument("--text-col", required=True)
-    p.add_argument("--title-col")
-    p.add_argument("--source-col")
-    p.add_argument("--date-col")
-    p.add_argument("--jurisdiction-col")
-    p.add_argument("--year-col")
-    args = p.parse_args()
-
-    df = load_excel(args.path)
-    docs = prepare_docs(df, args.text_col, args.title_col, args.source_col,
-                        args.date_col, args.jurisdiction_col, args.year_col)
-    upload_docs(docs)
+    print("Checking Azure Storage container...")
+    
+    # First, list available blobs to see what files exist
+    available_blobs = list_blobs_in_container()
+    print(f"Available files in container: {available_blobs}")
+    
+    # Look for Excel files
+    excel_files = [blob for blob in available_blobs if blob.endswith(('.xlsx', '.xls'))]
+    
+    if not excel_files:
+        print("No Excel files found in the container.")
+        exit(1)
+        
+    # Use the first Excel file found, or specify the correct name
+    excel_file = excel_files[0] if excel_files else "demandas.xlsx"
+    print(f"Using Excel file: {excel_file}")
+    
+    print("Loading Excel from Azure Storage...")
+    
+    # Load Excel file from Azure Storage
+    df = load_excel_from_azure_storage(excel_file)
+    print(f"Loaded {len(df)} rows")
+    print(f"Columns: {list(df.columns)}")
+    
+    # Check if required columns exist for legal format
+    required_cols = ['Relevancia', 'Providencia', 'Tipo', 'Fecha Sentencia', 
+                    'Tema - subtema', 'resuelve', 'sintesis']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        print(f"Error: Missing required columns for legal format: {missing_cols}")
+        print(f"Available columns: {list(df.columns)}")
+        exit(1)
+    
+    print("Processing documents...")
+    docs = prepare_docs_legal(df)
+    
+    print(f"Prepared {len(docs)} document chunks")
+    if docs:
+        print(f"Sample document: {docs[0]}")
+        print("Starting upload to Azure AI Search...")
+        upload_docs(docs)
+        print("Upload completed successfully!")
+    else:
+        print("No documents to upload")
