@@ -13,10 +13,11 @@ langgraph>=0.2.27,<0.3
 langchain-google-genai>=2.1.0,<2.2
 google-genai>=1.18.0,<2.0
 
-# Azure Search + Identity
+# Azure
 azure-search-documents==11.6.0b4
 azure-identity==1.17.1
 azure-core==1.30.2
+azure-storage-blob==12.16.0
 
 # Data & utils
 pandas==2.2.2

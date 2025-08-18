@@ -11,12 +11,12 @@ def embed(texts: List[str]) -> List[List[float]]:
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
     vecs = []
     for t in texts:
-        # Using the documented API for google-genai SDK
+        # Using the correct API from google-genai documentation
         response = client.models.embed_content(
             model=settings.GEMINI_EMBED_MODEL,
-            input=str(t)
+            contents=str(t)  # The parameter is 'contents', not 'content' or 'input'
         )
-        vecs.append(response.embedding.values)
+        vecs.append(response.embeddings[0].values)
     return vecs
 
 def list_blobs_in_container() -> List[str]:
@@ -129,7 +129,7 @@ def prepare_docs_legal(df: pd.DataFrame) -> List[Dict]:
                 "title": providencia,
                 "content": c,
                 "source": tipo,
-                "date": fecha_sentencia.isoformat() if hasattr(fecha_sentencia, 'isoformat') else str(fecha_sentencia) if fecha_sentencia else None,
+                "date": fecha_sentencia.isoformat() + "Z" if hasattr(fecha_sentencia, 'isoformat') else None,
                 "year": year,
                 "relevance": relevancia,
                 "tema_subtema_raw": tema_subtema,
