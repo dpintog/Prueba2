@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from config import settings
 from graph.agent_graph import build_graph
 from prompts import SYSTEM_PROMPT
@@ -15,6 +15,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.APP_NAME)
+
+# Simple in-memory conversation store
+conversation_memory = {}
 
 if settings.CORS_ALLOW_ORIGINS:
     app.add_middleware(
@@ -60,13 +63,15 @@ async def bot_messages(request: Request):
         
         # Handle different activity types
         if activity_data.get("type") == "message" and activity_data.get("text"):
-            # Extract the user message
+            # Extract the user message and conversation ID
             user_message = activity_data["text"]
+            conversation_id = activity_data.get("conversation", {}).get("id", "default")
             logger.info(f"Bot processing message: {user_message[:100]}...")
             
-            # Process the message using your existing graph with modified prompt for bot interface
-            # Use a clean conversational system prompt for the bot (no JSON instructions)
-            bot_system_prompt = """Eres un asistente legal conversacional. Responde SIEMPRE en español, con precisión y cautela. Tu objetivo es explicar para no abogados, sin jerga innecesaria.
+            # Get or create conversation history
+            if conversation_id not in conversation_memory:
+                # Initialize with system prompt for new conversations
+                bot_system_prompt = """Eres un asistente legal conversacional. Responde SIEMPRE en español, con precisión y cautela. Tu objetivo es explicar para no abogados, sin jerga innecesaria.
 
 REGLAS DE EVIDENCIA Y CITA
 - Antes de responder, DEBES buscar usando las herramientas disponibles (no inventes información).
@@ -81,6 +86,7 @@ CONDUCTA DE BÚSQUEDA
 1) Si detectas una "providencia" → usa search_by_providence con esa providencia.
 2) Si NO hay providencia → usa search_cases con la consulta del usuario.
 3) Si una llamada devuelve 0 resultados, dilo con claridad y sugiere una aclaración.
+4) IMPORTANTE: Mantén el contexto de la conversación. Si el usuario se refiere a algo mencionado anteriormente ("esa demanda", "ese caso"), busca en el contexto de la conversación para identificar a qué se refiere.
 
 FORMATO DE RESPUESTA
 - Responde de manera natural y conversacional.
@@ -96,17 +102,28 @@ ESTILO
 - Lenguaje simple y conversacional.
 - Explica términos legales en palabras cotidianas."""
 
-            msgs = [SystemMessage(content=bot_system_prompt),
-                    HumanMessage(content=user_message)]
+                conversation_memory[conversation_id] = [SystemMessage(content=bot_system_prompt)]
+            
+            # Add current user message to conversation history
+            conversation_memory[conversation_id].append(HumanMessage(content=user_message))
+            
+            # Keep only last 10 messages to prevent context from growing too large
+            if len(conversation_memory[conversation_id]) > 10:
+                # Keep system message + last 9 messages
+                conversation_memory[conversation_id] = [conversation_memory[conversation_id][0]] + conversation_memory[conversation_id][-9:]
             
             initial_state = {
-                "messages": msgs,
+                "messages": conversation_memory[conversation_id],
                 "top_k": 6,
                 "filters": None
             }
             
             result = graph.invoke(initial_state)
             final_msg = result["messages"][-1]
+            
+            # Update conversation memory with the bot's response
+            if hasattr(final_msg, 'content') and final_msg.content:
+                conversation_memory[conversation_id].append(AIMessage(content=final_msg.content))
             
             if not hasattr(final_msg, 'content') or not final_msg.content:
                 response_text = "Lo siento, no pude generar una respuesta. Por favor, inténtalo de nuevo."

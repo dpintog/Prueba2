@@ -1,14 +1,19 @@
 from typing import Optional, List, Dict, Any
 from langchain.tools import tool
 from providers.bot_search_client import make_search_client
-from providers.gemini_provider import get_gemini_client
+import google.genai as genai
 from config import settings
 
 def _embed_query(text: str) -> List[float]:
-    genai = get_gemini_client()
-    # text-embedding-004 returns {"embedding":{"values":[...]}}
-    e = genai.embed_content(model=settings.GEMINI_EMBED_MODEL, content=text)
-    return e["embedding"]["values"]
+    # Create client with API key
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    
+    # Use the genai client for embeddings with correct API
+    result = client.models.embed_content(
+        model=settings.GEMINI_EMBED_MODEL,
+        contents=text
+    )
+    return result.embeddings[0].values
 
 @tool("search_cases", return_direct=False)
 def search_cases(query: str,
@@ -36,8 +41,8 @@ def search_cases(query: str,
 
     kwargs = {
         "top": top_k,
-        "search": query,
-        "vector": {"value": vec, "fields": "content_vector", "k": top_k},
+        "search_text": query,
+        "vector_queries": [{"vector": vec, "fields": "content_vector", "k": top_k, "kind": "vector"}],
         "filter": filter_str
     }
 
@@ -45,9 +50,7 @@ def search_cases(query: str,
         kwargs.update({
             "query_type": "semantic",
             "semantic_configuration_name": settings.SEMANTIC_CONFIG_NAME,
-            "query_language": settings.SEMANTIC_LANGUAGE,
-            "answers": "extractive",
-            "captions": "extractive",
+            "query_language": "es",  # Spanish language
         })
 
     results = client.search(**kwargs)
