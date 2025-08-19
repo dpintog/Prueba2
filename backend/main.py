@@ -64,8 +64,39 @@ async def bot_messages(request: Request):
             user_message = activity_data["text"]
             logger.info(f"Bot processing message: {user_message[:100]}...")
             
-            # Process the message using your existing graph
-            msgs = [SystemMessage(content=SYSTEM_PROMPT),
+            # Process the message using your existing graph with modified prompt for bot interface
+            # Use a clean conversational system prompt for the bot (no JSON instructions)
+            bot_system_prompt = """Eres un asistente legal conversacional. Responde SIEMPRE en español, con precisión y cautela. Tu objetivo es explicar para no abogados, sin jerga innecesaria.
+
+REGLAS DE EVIDENCIA Y CITA
+- Antes de responder, DEBES buscar usando las herramientas disponibles (no inventes información).
+- Cita lo que afirmes añadiendo referencias al final de tu respuesta.
+- Si la evidencia es débil, ambigua u off-topic: di claramente que no hay evidencia suficiente y pide UNA aclaración breve.
+
+HERRAMIENTAS DISPONIBLES Y POLÍTICA DE USO
+- search_by_providence: Úsala cuando el usuario mencione una providencia específica (T-123/2024, C-xxx/AAAA, etc.).
+- search_cases: Úsala para consultas generales sobre casos, demandas o temas legales.
+
+CONDUCTA DE BÚSQUEDA
+1) Si detectas una "providencia" → usa search_by_providence con esa providencia.
+2) Si NO hay providencia → usa search_cases con la consulta del usuario.
+3) Si una llamada devuelve 0 resultados, dilo con claridad y sugiere una aclaración.
+
+FORMATO DE RESPUESTA
+- Responde de manera natural y conversacional.
+- Sé breve, claro y directo.
+- Estructura tu respuesta de forma fácil de leer.
+- Incluye las fuentes al final si las hay.
+
+LÍMITES Y SEGURIDAD
+- No des asesoría legal formal; menciona: "Esto no constituye asesoría legal".
+- Si no puedes verificar algo, dilo claramente.
+
+ESTILO
+- Lenguaje simple y conversacional.
+- Explica términos legales en palabras cotidianas."""
+
+            msgs = [SystemMessage(content=bot_system_prompt),
                     HumanMessage(content=user_message)]
             
             initial_state = {
@@ -80,15 +111,30 @@ async def bot_messages(request: Request):
             if not hasattr(final_msg, 'content') or not final_msg.content:
                 response_text = "Lo siento, no pude generar una respuesta. Por favor, inténtalo de nuevo."
             else:
-                # Try to parse and format the response
-                try:
-                    response_data = json.loads(final_msg.content)
-                    if isinstance(response_data, dict):
-                        response_text = format_legal_response(response_data)
-                    else:
-                        response_text = str(final_msg.content)
-                except json.JSONDecodeError:
-                    response_text = str(final_msg.content)
+                # Clean up the response - extract just the answer if it's still in JSON format
+                content = str(final_msg.content).strip()
+                
+                # Remove markdown code blocks if present
+                if content.startswith('```json'):
+                    content = content.replace('```json', '').replace('```', '').strip()
+                
+                # Try to parse as JSON and extract just the answer
+                if content.startswith('{') and content.endswith('}'):
+                    try:
+                        response_data = json.loads(content)
+                        if isinstance(response_data, dict) and "answer" in response_data:
+                            response_text = response_data["answer"]
+                            # Add disclaimer if present
+                            if response_data.get("disclaimer"):
+                                response_text += f"\n\n{response_data['disclaimer']}"
+                        else:
+                            response_text = content
+                    except json.JSONDecodeError:
+                        # If JSON parsing fails, use the original content
+                        response_text = content
+                else:
+                    # Use content as-is if it's not JSON
+                    response_text = content
             
             # Send response back to the emulator
             await send_response_to_emulator(activity_data, response_text)
