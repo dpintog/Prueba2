@@ -48,7 +48,13 @@ def chat(req: ChatRequest):
                 HumanMessage(content=req.message)]
         
         logger.info("Invoking graph with messages")
-        result = graph.invoke({"messages": msgs})
+        # Pass search parameters to the graph state
+        initial_state = {
+            "messages": msgs,
+            "top_k": req.top_k,
+            "filters": req.filters
+        }
+        result = graph.invoke(initial_state)
         final_msg = result["messages"][-1]
         
         # Ensure we have content to return

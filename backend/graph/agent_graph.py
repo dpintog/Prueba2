@@ -14,8 +14,65 @@ from prompts import SYSTEM_PROMPT, FINAL_JSON_INSTRUCTIONS
 from config import settings
 from .state import GraphState
 
+# Create a custom tool node that can access state
+class StatefulToolNode:
+    def __init__(self, tools):
+        self.tools = {tool.name: tool for tool in tools}
+    
+    def __call__(self, state: GraphState) -> GraphState:
+        messages = state["messages"]
+        last_message = messages[-1]
+        
+        if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+            return state
+        
+        # Get search parameters from state
+        top_k = state.get("top_k", 6)
+        filters = state.get("filters", None)
+        
+        tool_messages = []
+        for tool_call in last_message.tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"].copy()
+            
+            # Inject state parameters for search tools
+            if tool_name == "search_cases":
+                if "top_k" not in tool_args or tool_args["top_k"] == 6:  # Use state value if default
+                    tool_args["top_k"] = top_k
+                if filters and ("filters" not in tool_args or not tool_args["filters"]):
+                    tool_args["filters"] = filters
+            elif tool_name == "search_by_providence":
+                if "top_k" not in tool_args or tool_args["top_k"] == 10:  # Use state value if default
+                    tool_args["top_k"] = top_k
+                if filters and ("additional_filters" not in tool_args or not tool_args["additional_filters"]):
+                    tool_args["additional_filters"] = filters
+            
+            if tool_name in self.tools:
+                try:
+                    result = self.tools[tool_name].invoke(tool_args)
+                    tool_messages.append(
+                        ToolMessage(
+                            content=str(result),
+                            tool_call_id=tool_call["id"]
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Error executing tool {tool_name}: {str(e)}")
+                    tool_messages.append(
+                        ToolMessage(
+                            content=f"Error ejecutando herramienta {tool_name}: {str(e)}",
+                            tool_call_id=tool_call["id"]
+                        )
+                    )
+        
+        return {
+            "messages": messages + tool_messages,
+            "top_k": state.get("top_k"),
+            "filters": state.get("filters")
+        }
+
 tools = [search_cases, search_by_providence, get_providence_summary, list_providences]
-tool_node = ToolNode(tools)
+tool_node = StatefulToolNode(tools)
 
 def _model():
     return ChatGoogleGenerativeAI(
@@ -27,6 +84,10 @@ def _model():
 
 def agent(state: GraphState) -> GraphState:
     llm = _model()
+    
+    # Get search parameters from state
+    top_k = state.get("top_k", 6)
+    filters = state.get("filters", None)
     
     # Filter out messages with empty content to prevent Gemini API errors
     valid_messages = []
@@ -65,14 +126,21 @@ def agent(state: GraphState) -> GraphState:
             break
     
     if first_human_msg_idx is not None and first_human_msg_idx == 0:
-        # This is the first human message, prepend system context
+        # This is the first human message, enhance with search parameters if provided
         original_content = valid_messages[0].content
         enhanced_content = f"{SYSTEM_PROMPT}\n\nUsuario: {original_content}"
+        
+        # Add search parameters context if they differ from defaults
+        if top_k != 6:
+            enhanced_content += f"\n[Parámetro: buscar hasta {top_k} resultados]"
+        if filters:
+            enhanced_content += f"\n[Filtros aplicados: {filters}]"
+        
         valid_messages[0] = HumanMessage(content=enhanced_content)
     
     try:
         resp = llm.invoke(valid_messages)
-        return {"messages": state["messages"] + [resp]}
+        return {"messages": state["messages"] + [resp], "top_k": top_k, "filters": filters}
     except Exception as e:
         logger.error(f"Error invoking LLM: {str(e)}")
         logger.error(f"Valid messages count: {len(valid_messages)}")
@@ -80,7 +148,7 @@ def agent(state: GraphState) -> GraphState:
             logger.error(f"Message {i}: {type(msg).__name__} - Content length: {len(getattr(msg, 'content', '')) if hasattr(msg, 'content') else 'NO_CONTENT'}")
         # Return a fallback response
         fallback_response = AIMessage(content="Lo siento, hubo un error procesando tu consulta. Por favor, intenta de nuevo con una pregunta más específica.")
-        return {"messages": state["messages"] + [fallback_response]}
+        return {"messages": state["messages"] + [fallback_response], "top_k": top_k, "filters": filters}
 
 def route_tools(state: GraphState):
     last = state["messages"][-1]
@@ -95,17 +163,29 @@ def final_answer(state: GraphState) -> GraphState:
     # Create the final instruction message
     final_instruction = HumanMessage(content=FINAL_JSON_INSTRUCTIONS)
     
-    # Filter valid messages and add the final instruction
+    # Filter valid messages but ensure we have proper conversation flow
     valid_messages = []
+    has_human_or_ai = False
+    
     for msg in state["messages"]:
-        if isinstance(msg, ToolMessage):
+        if isinstance(msg, (HumanMessage, SystemMessage, AIMessage)):
+            if hasattr(msg, 'content') and msg.content and str(msg.content).strip():
+                valid_messages.append(msg)
+                has_human_or_ai = True
+            elif hasattr(msg, 'tool_calls') and msg.tool_calls:
+                # Include AI messages with tool calls
+                valid_messages.append(msg)
+                has_human_or_ai = True
+        elif isinstance(msg, ToolMessage):
             # Always include ToolMessages as they contain search results
             valid_messages.append(msg)
-        elif hasattr(msg, 'content') and msg.content and str(msg.content).strip():
-            valid_messages.append(msg)
-        elif hasattr(msg, 'tool_calls') and msg.tool_calls:
-            # Include AI messages with tool calls
-            valid_messages.append(msg)
+    
+    # Ensure we have at least one human/system/AI message for Gemini
+    if not has_human_or_ai:
+        logger.error("No human/AI messages found, adding fallback")
+        # Add a minimal human message to establish context
+        fallback_human = HumanMessage(content="Por favor, sintetiza la información encontrada en la búsqueda.")
+        valid_messages = [fallback_human] + valid_messages
     
     if not valid_messages:
         # If no valid messages, return a default JSON response
