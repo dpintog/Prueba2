@@ -1,5 +1,6 @@
 # bot-demandas
-
+## Arquitectura
+![Arquitectura](./arquitectura.png)
 
 ## Ambiente virtual
 
