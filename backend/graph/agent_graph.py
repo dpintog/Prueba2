@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 from tools.search_cases import search_cases
 from tools.search_by_providence import search_by_providence, get_providence_summary, list_providences
-from prompts import SYSTEM_PROMPT, FINAL_JSON_INSTRUCTIONS
+from prompts import SYSTEM_PROMPT
 from config import settings
 from .state import GraphState
 
@@ -157,53 +157,26 @@ def route_tools(state: GraphState):
     return "final"
 
 def final_answer(state: GraphState) -> GraphState:
-    # Ask model to synthesize final JSON-compliant answer from the conversation so far.
-    llm = _model()
+    # Get the last AI message directly instead of asking for JSON synthesis
+    messages = state["messages"]
     
-    # Create the final instruction message
-    final_instruction = HumanMessage(content=FINAL_JSON_INSTRUCTIONS)
+    # Find the last AI message that contains actual content
+    last_ai_message = None
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and hasattr(msg, 'content') and msg.content and str(msg.content).strip():
+            # Skip messages with tool calls, we want the actual response
+            if not (hasattr(msg, 'tool_calls') and msg.tool_calls):
+                last_ai_message = msg
+                break
     
-    # Filter valid messages but ensure we have proper conversation flow
-    valid_messages = []
-    has_human_or_ai = False
-    
-    for msg in state["messages"]:
-        if isinstance(msg, (HumanMessage, SystemMessage, AIMessage)):
-            if hasattr(msg, 'content') and msg.content and str(msg.content).strip():
-                valid_messages.append(msg)
-                has_human_or_ai = True
-            elif hasattr(msg, 'tool_calls') and msg.tool_calls:
-                # Include AI messages with tool calls
-                valid_messages.append(msg)
-                has_human_or_ai = True
-        elif isinstance(msg, ToolMessage):
-            # Always include ToolMessages as they contain search results
-            valid_messages.append(msg)
-    
-    # Ensure we have at least one human/system/AI message for Gemini
-    if not has_human_or_ai:
-        logger.error("No human/AI messages found, adding fallback")
-        # Add a minimal human message to establish context
-        fallback_human = HumanMessage(content="Por favor, sintetiza la información encontrada en la búsqueda.")
-        valid_messages = [fallback_human] + valid_messages
-    
-    if not valid_messages:
-        # If no valid messages, return a default JSON response
-        logger.error("No valid messages for final answer, returning default response")
-        default_response = '''{"answer": "No pude procesar la consulta.", "citations": [], "cases": [], "disclaimer": "Esto no constituye asesoría legal."}'''
-        return {"messages": state["messages"] + [AIMessage(content=default_response)]}
-    
-    msgs = valid_messages + [final_instruction]
-    
-    try:
-        out = llm.invoke(msgs)
-        return {"messages": state["messages"] + [out]}
-    except Exception as e:
-        logger.error(f"Error in final_answer: {str(e)}")
-        logger.error(f"Final messages being sent: {[type(m).__name__ + ': ' + str(m.content)[:100] if hasattr(m, 'content') else type(m).__name__ for m in msgs]}")
-        # Return a fallback JSON response
-        fallback_response = '''{"answer": "Lo siento, hubo un error generando la respuesta final.", "citations": [], "cases": [], "disclaimer": "Esto no constituye asesoría legal."}'''
-        return {"messages": state["messages"] + [AIMessage(content=fallback_response)]}
+    if last_ai_message:
+        # Use the existing AI response
+        return {"messages": state["messages"]}
+    else:
+        # If no suitable AI message found, create a simple fallback
+        logger.error("No suitable AI message found for final answer")
+        fallback_response = AIMessage(content="Lo siento, no pude procesar tu consulta adecuadamente. Por favor, intenta reformular tu pregunta.")
+        return {"messages": state["messages"] + [fallback_response]}
 
 def build_graph():
     g = StateGraph(GraphState)

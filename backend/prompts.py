@@ -38,13 +38,3 @@ ESTILO
 - Lenguaje simple y neutral; explica términos legales en palabras cotidianas cuando aparezcan.
 - Evita jerga, latinismos y tecnicismos salvo que sea indispensable (y defínelos si los usas).
 """
-
-
-FINAL_JSON_INSTRUCTIONS = """Devuelve SOLO JSON con este esquema:
-{
-  "answer": string,
-  "citations": [{"id": string, "title": string|null, "source": string|null}],
-  "cases": [{"id": string, "title": string|null, "date": string|null}],
-  "disclaimer": string
-}
-"""
