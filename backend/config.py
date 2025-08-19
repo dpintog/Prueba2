@@ -30,4 +30,8 @@ class Settings(BaseSettings):
     SEMANTIC_CONFIG_NAME: str = "legal-semantic"
     SEMANTIC_LANGUAGE: str = "es-es"
 
+    # Bot Framework settings
+    MICROSOFT_APP_ID: str = os.getenv("MICROSOFT_APP_ID", "")
+    MICROSOFT_APP_PASSWORD: str = os.getenv("MICROSOFT_APP_PASSWORD", "")
+
 settings = Settings()

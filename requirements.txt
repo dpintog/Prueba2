@@ -4,6 +4,11 @@ pydantic==2.8.2
 python-dotenv==1.0.1
 pydantic-settings==2.2.1
 
+# Bot Framework SDK
+botbuilder-core==4.15.0
+botbuilder-schema==4.15.0
+botbuilder-integration-aiohttp==4.15.0
+
 # LangChain/LangGraph (0.3 line)
 langchain>=0.3,<0.4
 langchain-core>=0.3.43,<0.4
