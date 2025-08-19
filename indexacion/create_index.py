@@ -32,7 +32,7 @@ def client():
 def create_or_replace():
     fields = [
         SimpleField(name="id", type="Edm.String", key=True, filterable=True, sortable=True),
-        SearchableField(name="title", type="Edm.String", analyzer_name="es.microsoft"),
+        SearchableField(name="title", type="Edm.String", analyzer_name="es.microsoft", filterable=True),
         SearchableField(name="content", type="Edm.String", analyzer_name="es.microsoft", synonym_map_names=["es-legal-syn"]),
         SimpleField(name="source", type="Edm.String", filterable=True, facetable=True),
         

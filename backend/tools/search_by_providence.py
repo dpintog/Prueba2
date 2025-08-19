@@ -21,32 +21,36 @@ def search_by_providence(providence: str,
     """
     client = make_search_client()
     
-    # Build the filter for providence
-    filters = [f"title eq '{providence}'"]
-    
-    # Add additional filters if provided
+    # Build filters including title now that it's filterable
+    filter_parts = [f"title eq '{providence}'"]  # Main providence filter
     if additional_filters:
         for key, value in additional_filters.items():
             if isinstance(value, str):
-                filters.append(f"{key} eq '{value}'")
+                filter_parts.append(f"{key} eq '{value}'")
             elif isinstance(value, bool):
-                filters.append(f"{key} eq {str(value).lower()}")
+                filter_parts.append(f"{key} eq {str(value).lower()}")
             else:
-                filters.append(f"{key} eq {value}")
+                filter_parts.append(f"{key} eq {value}")
     
-    filter_str = " and ".join(filters)
+    filter_str = " and ".join(filter_parts)
     
-    # Execute search with filter
+    # Execute search with proper filtering
     try:
-        results = client.search(
-            search_text="*",  # Search all documents
-            filter=filter_str,
-            top=top_k,
-            select=[
+        search_params = {
+            "search_text": "*",  # Get all documents matching the filter
+            "filter": filter_str,
+            "top": top_k,
+            "select": [
                 "id", "title", "content", "source", "date", "year", 
                 "relevance", "tema_subtema_raw", "temas"
             ]  # Exclude content_vector
-        )
+        }
+        
+        # Add filter for additional filters if any
+        if filter_str:
+            search_params["filter"] = filter_str
+            
+        results = client.search(**search_params)
         
         documents = []
         for result in results:
@@ -67,11 +71,15 @@ def search_by_providence(providence: str,
         return documents
         
     except Exception as e:
-        # Return error information for debugging
+        # Return detailed error information for debugging
+        error_msg = f"Error searching for providence '{providence}': {str(e)}"
+        print(f"Azure Search Error: {error_msg}")  # Log for debugging
         return [{
-            "error": f"Error searching for providence '{providence}': {str(e)}",
+            "error": error_msg,
             "providence": providence,
-            "filters_used": filter_str
+            "filters_used": filter_str,
+            "search_strategy": "text_search",
+            "message": "No se pudo realizar la búsqueda. Verifica el identificador de la providencia."
         }]
 
 
@@ -163,7 +171,7 @@ def list_providences(limit: int = 50,
     try:
         # Use facets to get unique providences (titles)
         search_params = {
-            "search_text": "*",
+            "search_text": "",
             "facets": ["title"],
             "top": 0  # We only want facets, not documents
         }
@@ -182,9 +190,13 @@ def list_providences(limit: int = 50,
                 count = facet["count"]
                 
                 # Get a sample document for this providence to get additional info
+                sample_filter = f"title eq '{providence_name}'"
+                if filter_str:
+                    sample_filter = f"{sample_filter} and {filter_str}"
+                    
                 sample_doc = client.search(
                     search_text="*",
-                    filter=f"title eq '{providence_name}'" + (f" and {filter_str}" if filter_str else ""),
+                    filter=sample_filter,
                     top=1,
                     select=["source", "date", "year", "relevance", "tema_subtema_raw"]
                 )
