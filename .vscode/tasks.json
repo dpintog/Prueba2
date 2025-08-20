@@ -1,0 +1,38 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install Bot Framework Dependencies",
+			"type": "shell",
+			"command": "python -m pip install botbuilder-core==4.15.3 botbuilder-schema==4.15.3",
+			"group": "build"
+		},
+		{
+			"label": "Install Bot Framework Dependencies v4.17",
+			"type": "shell",
+			"command": "python -m pip install botbuilder-core==4.17.0 botbuilder-schema==4.17.0",
+			"group": "build"
+		},
+		{
+			"label": "Start Bot Server",
+			"type": "shell",
+			"command": "cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Start Bot Server (PowerShell)",
+			"type": "shell",
+			"command": "cd backend; python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Install and Start Bot Server",
+			"type": "shell",
+			"command": "Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+			"isBackground": true,
+			"group": "build"
+		}
+	]
+}

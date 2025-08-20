@@ -8,3 +8,5 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+deploy-simple.ps1
+deploy-backend.ps1

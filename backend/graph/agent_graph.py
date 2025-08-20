@@ -75,12 +75,28 @@ tools = [search_cases, search_by_providence, get_providence_summary, list_provid
 tool_node = StatefulToolNode(tools)
 
 def _model():
-    return ChatGoogleGenerativeAI(
-        model=settings.GEMINI_CHAT_MODEL,
-        temperature=0.2,
-        max_output_tokens=1024,
-        google_api_key=settings.GEMINI_API_KEY
-    ).bind_tools(tools)
+    # Ensure we have an API key
+    if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "your_gemini_api_key_here":
+        raise ValueError("GEMINI_API_KEY is not set in environment variables")
+    
+    try:
+        return ChatGoogleGenerativeAI(
+            model=settings.GEMINI_CHAT_MODEL,
+            temperature=0.2,
+            max_output_tokens=1024,
+            google_api_key=settings.GEMINI_API_KEY,
+            convert_system_message_to_human=True  # Add this to help with message handling
+        ).bind_tools(tools)
+    except Exception as e:
+        logger.error(f"Failed to create Gemini model: {str(e)}")
+        # Try with a fallback model name
+        return ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",  # Fallback to a known working model
+            temperature=0.2,
+            max_output_tokens=1024,
+            google_api_key=settings.GEMINI_API_KEY,
+            convert_system_message_to_human=True
+        ).bind_tools(tools)
 
 def agent(state: GraphState) -> GraphState:
     llm = _model()
